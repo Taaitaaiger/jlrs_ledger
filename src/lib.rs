@@ -1,5 +1,10 @@
 use std::{ffi::c_void, sync::Mutex};
 
+#[cfg(all(target_arch = "x86", target_os = "windows", target_env = "gnu"))]
+#[allow(unused)]
+#[no_mangle]
+unsafe extern "C" fn _Unwind_Resume() {}
+
 #[no_mangle]
 pub static JLRS_LEDGER_API_VERSION: usize = 1;
 

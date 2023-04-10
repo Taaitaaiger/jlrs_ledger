@@ -1,14 +1,12 @@
 [package]
 name = "jlrs-ledger"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Thomas van Doornmalen <thomas.vandoornmalen@gmail.com>"]
-description = "Julia binding library for RustFFT"
+description = "A ledger to track Julia data borrowed in Rust "
 homepage = "https://github.com/Taaitaaiger/jlrs_ledger"
 repository = "https://github.com/Taaitaaiger/jlrs_ledger"
 readme = "./README.md"
-keywords = ["Julia", "fft", "fourier", "transform", "ffi"]
-categories = ["api-bindings", "mathematics"]
 license = "MIT"
 
 [lib]
