@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+  workflow_dispatch:
+
+jobs:
+  test-linux:
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.allow-fail }}
+    strategy:
+      matrix:
+        rust: [stable, beta]
+        allow-fail: [false]
+        include:
+          - rust: nightly
+            allow-fail: true
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Rust
+        uses:  dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Run tests
+        run: cargo test -- --test-threads=1 --verbose
+
+  test-macos:
+    runs-on: macos-latest
+    continue-on-error: ${{ matrix.allow-fail }}
+    strategy:
+      matrix:
+        rust: [stable, beta]
+        allow-fail: [false]
+        include:
+          - rust: nightly
+            allow-fail: true
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Rust
+        uses:  dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Run tests
+        run: cargo test -- --test-threads=1 --verbose
+
+  test-windows-gnu:
+    runs-on: windows-latest
+    continue-on-error: ${{ matrix.allow-fail }}
+    strategy:
+      matrix:
+        rust: [stable-x86_64-pc-windows-gnu, beta-x86_64-pc-windows-gnu]
+        allow-fail: [false]
+        include:
+          - rust: nightly-x86_64-pc-windows-gnu
+            allow-fail: true
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Run tests
+        run: cargo test -- --test-threads=1 --verbose
+
+  test-windows-msvc:
+    runs-on: windows-latest
+    continue-on-error: ${{ matrix.allow-fail }}
+    strategy:
+      matrix:
+        rust: [stable-x86_64-pc-windows-msvc, beta-x86_64-pc-windows-msvc]
+        allow-fail: [false]
+        include:
+          - rust: nightly-x86_64-pc-windows-msvc
+            allow-fail: true
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Run tests
+        run: cargo test -- --test-threads=1 --verbose
