@@ -1,9 +1,9 @@
 [package]
 name = "jlrs-ledger"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 authors = ["Thomas van Doornmalen <thomas.vandoornmalen@gmail.com>"]
-description = "A ledger to track Julia data borrowed in Rust "
+description = "A ledger to track Julia data borrowed in Rust"
 homepage = "https://github.com/Taaitaaiger/jlrs_ledger"
 repository = "https://github.com/Taaitaaiger/jlrs_ledger"
 readme = "./README.md"
@@ -14,19 +14,24 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 once_cell = "1"
-rustc-hash = "1"
-spin = { version = "0.9", features = ["use_ticket_mutex"]}
+rustc-hash = "2"
+spin = "0.9"
 
 [target.'cfg(unix)'.dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-pprof = { version = "0.12", features = ["flamegraph", "criterion"] }
 
 [profile.bench]
 debug = true
+codegen-units = 1
 
 [profile.release]
+codegen-units = 1
 panic = "abort"
 
 [[bench]]
 name = "track"
+harness = false
+
+[[bench]]
+name = "contention"
 harness = false
