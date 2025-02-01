@@ -1,100 +1,115 @@
-use criterion::{criterion_group, criterion_main, Criterion};
-use jlrs_ledger::Ledger;
-use pprof::{
-    criterion::{Output, PProfProfiler},
-    flamegraph::Options,
-};
-use std::ptr::null;
-
-// Thanks to the example provided by @jebbow in his article
-// https://www.jibbow.com/posts/criterion-flamegraphs/
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use jlrs_ledger::*;
+use std::{ffi::c_void, ptr::dangling};
 
 fn benches(c: &mut Criterion) {
-    Ledger::init();
+    jlrs_ledger_init();
+
+    let ptr = dangling::<u32>() as *const c_void;
 
     c.bench_function("Track shared", |b| {
-        b.iter(|| unsafe { Ledger::try_borrow_shared(null()) })
+        b.iter(|| unsafe {
+            let a = jlrs_ledger_try_borrow_shared(black_box(ptr));
+            black_box(a)
+        })
     });
 
     unsafe {
-        Ledger::clear();
+        clear_ledger();
     }
 
     c.bench_function("Is tracked shared false", |b| {
-        b.iter(|| unsafe { Ledger::is_borrowed_shared(null()) })
+        b.iter(|| unsafe {
+            let a = jlrs_ledger_is_borrowed_shared(black_box(ptr));
+            black_box(a)
+        })
     });
-
-    unsafe {
-        Ledger::clear();
-    }
 
     c.bench_function("Is tracked exclusive false", |b| {
-        b.iter(|| unsafe { Ledger::is_borrowed_exclusive(null()) })
+        b.iter(|| unsafe {
+            let a = jlrs_ledger_is_borrowed_exclusive(black_box(ptr));
+            black_box(a)
+        })
     });
-
-    unsafe {
-        Ledger::clear();
-    }
 
     c.bench_function("Is tracked false", |b| {
-        b.iter(|| unsafe { Ledger::is_borrowed(null()) })
+        b.iter(|| unsafe {
+            let a = jlrs_ledger_is_borrowed(black_box(ptr));
+            black_box(a)
+        })
     });
 
     unsafe {
-        Ledger::clear();
-        Ledger::borrow_shared_unchecked(null());
+        jlrs_ledger_try_borrow_shared(ptr);
     }
 
     c.bench_function("Is tracked shared true", |b| {
-        b.iter(|| unsafe { Ledger::is_borrowed_shared(null()) })
+        b.iter(|| unsafe {
+            let a = jlrs_ledger_is_borrowed_shared(black_box(ptr));
+            black_box(a)
+        })
     });
 
     c.bench_function("Is tracked true", |b| {
-        b.iter(|| unsafe { Ledger::is_borrowed(null()) })
+        b.iter(|| unsafe {
+            let a = jlrs_ledger_is_borrowed(black_box(ptr));
+            black_box(a)
+        })
     });
 
     unsafe {
-        Ledger::clear();
-        Ledger::try_borrow_exclusive(null());
+        clear_ledger();
+        jlrs_ledger_try_borrow_exclusive(ptr);
     }
 
     c.bench_function("Is tracked exclusive true", |b| {
-        b.iter(|| unsafe { Ledger::is_borrowed_exclusive(null()) })
+        b.iter(|| unsafe {
+            let a = jlrs_ledger_is_borrowed_exclusive(black_box(ptr));
+            black_box(a)
+        })
     });
 
     unsafe {
-        Ledger::clear();
+        clear_ledger();
     }
 
     c.bench_function("Track and untrack shared", |b| {
         b.iter(|| unsafe {
-            Ledger::try_borrow_shared(null());
-            Ledger::unborrow_shared(null());
+            let a = jlrs_ledger_try_borrow_shared(black_box(ptr));
+            let b = jlrs_ledger_unborrow_shared(black_box(ptr));
+            (black_box(a), black_box(b))
         })
     });
 
     unsafe {
-        Ledger::clear();
+        clear_ledger();
+        jlrs_ledger_try_borrow_shared(black_box(ptr));
+    }
+
+    c.bench_function("Track and untrack shared second time", |b| {
+        b.iter(|| unsafe {
+            let a = jlrs_ledger_try_borrow_shared(black_box(ptr));
+            let b = jlrs_ledger_unborrow_shared(black_box(ptr));
+            (black_box(a), black_box(b))
+        })
+    });
+
+    unsafe {
+        clear_ledger();
     }
 
     c.bench_function("Track and untrack exclusive", |b| {
         b.iter(|| unsafe {
-            Ledger::try_borrow_exclusive(null());
-            Ledger::unborrow_exclusive(null());
+            let a = jlrs_ledger_try_borrow_exclusive(black_box(ptr));
+            let b = jlrs_ledger_unborrow_exclusive(black_box(ptr));
+            (black_box(a), black_box(b))
         })
     });
 }
 
-fn opts() -> Option<Options<'static>> {
-    let mut opts = Options::default();
-    opts.image_width = Some(1920);
-    opts.min_width = 0.01;
-    Some(opts)
-}
-
 criterion_group! {
     name = track;
-    config = Criterion::default().with_profiler(PProfProfiler::new(1000000, Output::Flamegraph(opts())));
+    config = Criterion::default();
     targets = benches
 }
 
