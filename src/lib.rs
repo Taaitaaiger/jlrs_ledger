@@ -57,6 +57,7 @@ pub extern "C" fn jlrs_ledger_init() {
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[no_mangle]
 pub unsafe extern "C" fn jlrs_ledger_is_borrowed_shared(ptr: *const c_void) -> LedgerResult {
+    println!("jlrs_ledger_is_borrowed_shared {ptr:p}");
     match LEDGER.get_unchecked().lock().get(&(ptr as usize)).copied() {
         None => LedgerResult::OkFalse,
         Some(s) if s != EXCLUSIVE_BORROW => LedgerResult::OkTrue,
@@ -74,6 +75,7 @@ pub unsafe extern "C" fn jlrs_ledger_is_borrowed_shared(ptr: *const c_void) -> L
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[no_mangle]
 pub unsafe extern "C" fn jlrs_ledger_is_borrowed_exclusive(ptr: *const c_void) -> LedgerResult {
+    println!("jlrs_ledger_is_borrowed_exclusive {ptr:p}");
     match LEDGER.get_unchecked().lock().get(&(ptr as usize)).copied() {
         None => LedgerResult::OkFalse,
         Some(s) if s == EXCLUSIVE_BORROW => LedgerResult::OkTrue,
@@ -91,6 +93,7 @@ pub unsafe extern "C" fn jlrs_ledger_is_borrowed_exclusive(ptr: *const c_void) -
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[no_mangle]
 pub unsafe extern "C" fn jlrs_ledger_is_borrowed(ptr: *const c_void) -> LedgerResult {
+    println!("jlrs_ledger_is_borrowed {ptr:p}");
     if LEDGER.get_unchecked().lock().contains_key(&(ptr as usize)) {
         LedgerResult::OkTrue
     } else {
@@ -105,6 +108,7 @@ pub unsafe extern "C" fn jlrs_ledger_is_borrowed(ptr: *const c_void) -> LedgerRe
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[no_mangle]
 pub unsafe extern "C" fn jlrs_ledger_n_shared_borrows(ptr: *const c_void) -> usize {
+    println!("jlrs_ledger_n_shared_borrows {ptr:p}");
     match LEDGER.get_unchecked().lock().get(&(ptr as usize)).copied() {
         Some(s) => s.get() >> 1,
         None => 0,
@@ -121,6 +125,7 @@ pub unsafe extern "C" fn jlrs_ledger_n_shared_borrows(ptr: *const c_void) -> usi
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[no_mangle]
 pub unsafe extern "C" fn jlrs_ledger_unborrow_shared(ptr: *const c_void) -> LedgerResult {
+    println!("jlrs_ledger_unborrow_shared {ptr:p}");
     match LEDGER.get_unchecked().lock().entry(ptr as usize) {
         Entry::Occupied(mut o) => {
             let current = *o.get();
@@ -148,10 +153,15 @@ pub unsafe extern "C" fn jlrs_ledger_unborrow_shared(ptr: *const c_void) -> Ledg
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[no_mangle]
 pub unsafe extern "C" fn jlrs_ledger_unborrow_exclusive(ptr: *const c_void) -> LedgerResult {
+    println!("jlrs_ledger_unborrow_exclusive {ptr:p}");
     let mut ledger = LEDGER.get_unchecked().lock();
     match ledger.remove(&(ptr as usize)) {
-        Some(s) if s == EXCLUSIVE_BORROW => LedgerResult::OkTrue,
+        Some(s) if s == EXCLUSIVE_BORROW => {
+            println!("Unborrow exclusive");
+            LedgerResult::OkTrue
+        }
         Some(s) => {
+            println!("Weird state: {s}");
             ledger.insert(ptr as _, s);
             LedgerResult::Err
         }
@@ -169,6 +179,7 @@ pub unsafe extern "C" fn jlrs_ledger_unborrow_exclusive(ptr: *const c_void) -> L
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[no_mangle]
 pub unsafe extern "C" fn jlrs_ledger_try_borrow_shared(ptr: *const c_void) -> LedgerResult {
+    println!("jlrs_ledger_try_borrow_shared {ptr:p}");
     match LEDGER.get_unchecked().lock().entry(ptr as usize) {
         Entry::Vacant(v) => {
             v.insert(SHARED_BORROW);
@@ -195,12 +206,17 @@ pub unsafe extern "C" fn jlrs_ledger_try_borrow_shared(ptr: *const c_void) -> Le
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[no_mangle]
 pub unsafe extern "C" fn jlrs_ledger_try_borrow_exclusive(ptr: *const c_void) -> LedgerResult {
+    println!("jlrs_ledger_try_borrow_exclusive {ptr:p}");
     match LEDGER.get_unchecked().lock().entry(ptr as usize) {
         Entry::Vacant(v) => {
+            println!("jlrs_ledger_try_borrow_exclusive OK");
             v.insert(EXCLUSIVE_BORROW);
             LedgerResult::OkTrue
         }
-        Entry::Occupied(_) => LedgerResult::OkFalse,
+        Entry::Occupied(_) => {
+            println!("jlrs_ledger_try_borrow_exclusive ERR");
+            LedgerResult::OkFalse
+        }
     }
 }
 
@@ -214,6 +230,7 @@ pub unsafe extern "C" fn jlrs_ledger_try_borrow_exclusive(ptr: *const c_void) ->
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[doc(hidden)]
 pub unsafe fn clear_ledger() {
+    println!("clear_ledger");
     LEDGER.get_unchecked().lock().clear();
 }
 
