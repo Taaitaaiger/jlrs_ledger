@@ -1,4 +1,10 @@
-#### v0.3.0
+# jlrs-ledger changelog
+
+## v0.4.0
+
+- The ledger has been reimplemented and is now backed by `Vec`s instead of a `HashMap`. The external API is unchanged.
+
+## v0.3.0
 
 - The API version has been increased to 3.
 
@@ -14,7 +20,7 @@
 
 - The `Ledger` struct has been removed in favor of manipulating the backing `HashMap` directly.
 
-#### v0.2.0
+## v0.2.0
 
 - API version 2: `jlrs_ledger_init` must be called before the ledger is used.
 

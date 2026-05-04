@@ -1,27 +1,25 @@
-use once_cell::sync::OnceCell;
-use rustc_hash::FxHashMap;
 use spin::Mutex;
-use std::{collections::hash_map::Entry, ffi::c_void, num::NonZeroUsize};
+use std::ffi::c_void;
 
 #[cfg(all(target_arch = "x86", target_os = "windows", target_env = "gnu"))]
 #[allow(unused)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn _Unwind_Resume() {}
 
+const INITIAL_CAPACITY: usize = 64;
+
 /// The current API version.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub static JLRS_LEDGER_API_VERSION: usize = 3;
 
-const EXCLUSIVE_BORROW_MASK: usize = 1;
-const EXCLUSIVE_BORROW: NonZeroUsize =
-    unsafe { NonZeroUsize::new_unchecked(EXCLUSIVE_BORROW_MASK) };
-const SHARED_BORROW_MASK: usize = 2;
-const SHARED_BORROW: NonZeroUsize = unsafe { NonZeroUsize::new_unchecked(SHARED_BORROW_MASK) };
-
-static LEDGER: OnceCell<Mutex<FxHashMap<usize, NonZeroUsize>>> = OnceCell::new();
+static LEDGER: Mutex<Ledger> = Mutex::new(Ledger {
+    shared: vec![],
+    shared_count: vec![],
+    exclusive: vec![],
+});
 
 /// Indicates whether an operation succeeded, failed, or incorrect.
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Debug)]
 #[repr(i32)]
 pub enum LedgerResult {
     /// Operation succeeded and the result is `false`, or the operation failed.
@@ -32,8 +30,133 @@ pub enum LedgerResult {
     Err = -1,
 }
 
+struct Ledger {
+    // The addresses of the shared borrows.
+    shared: Vec<usize>,
+    // Number of times each share has been borrowed.
+    shared_count: Vec<usize>,
+    // The addresses of the exclusive borrows.
+    exclusive: Vec<usize>,
+}
+
+impl Ledger {
+    #[inline]
+    fn reserve(&mut self, capacity: usize) {
+        self.shared.reserve(capacity);
+        self.shared_count.reserve(capacity);
+        self.exclusive.reserve(capacity);
+    }
+
+    #[inline]
+    fn is_borrowed_shared(&self, addr: *const c_void) -> LedgerResult {
+        let addr = addr.addr();
+        if self.shared.contains(&addr) {
+            return LedgerResult::OkTrue;
+        }
+
+        LedgerResult::OkFalse
+    }
+
+    #[inline]
+    fn is_borrowed_exclusive(&self, addr: *const c_void) -> LedgerResult {
+        let addr = addr.addr();
+        if self.exclusive.contains(&addr) {
+            LedgerResult::OkTrue
+        } else {
+            LedgerResult::OkFalse
+        }
+    }
+
+    #[inline]
+    fn is_borrowed(&self, addr: *const c_void) -> LedgerResult {
+        let addr = addr.addr();
+        if self.exclusive.contains(&addr) || self.shared.contains(&addr) {
+            LedgerResult::OkTrue
+        } else {
+            LedgerResult::OkFalse
+        }
+    }
+
+    #[inline]
+    fn n_shared_borrows(&self, addr: *const c_void) -> usize {
+        let addr = addr.addr();
+        match self.shared.iter().position(|x| x == &addr) {
+            Some(idx) => self.shared_count[idx],
+            None => 0,
+        }
+    }
+
+    #[inline]
+    fn unborrow_shared(&mut self, addr: *const c_void) -> LedgerResult {
+        let addr = addr.addr();
+        match self.shared.iter().position(|x| x == &addr) {
+            Some(idx) => {
+                self.shared_count[idx] -= 1;
+                if self.shared_count[idx] == 0 {
+                    self.shared.remove(idx);
+                    self.shared_count.remove(idx);
+                    LedgerResult::OkTrue
+                } else {
+                    LedgerResult::OkFalse
+                }
+            }
+            None => LedgerResult::Err,
+        }
+    }
+
+    #[inline]
+    fn unborrow_exclusive(&mut self, addr: *const c_void) -> LedgerResult {
+        let addr = addr.addr();
+        match self.exclusive.iter().position(|x| x == &addr) {
+            Some(idx) => {
+                self.exclusive.remove(idx);
+                LedgerResult::OkTrue
+            }
+            None => LedgerResult::Err,
+        }
+    }
+
+    #[inline]
+    fn try_borrow_shared(&mut self, addr: *const c_void) -> LedgerResult {
+        let addr = addr.addr();
+        if !self.exclusive.contains(&addr) {
+            match self.shared.iter().position(|x| x == &addr) {
+                Some(idx) => {
+                    self.shared_count[idx] += 1;
+                }
+                None => {
+                    self.shared.push(addr);
+                    self.shared_count.push(1);
+                }
+            }
+            LedgerResult::OkTrue
+        } else {
+            LedgerResult::OkFalse
+        }
+    }
+
+    #[inline]
+    fn try_borrow_exclusive(&mut self, addr: *const c_void) -> LedgerResult {
+        let addr = addr.addr();
+
+        if !self.shared.contains(&addr) && !self.exclusive.contains(&addr) {
+            self.exclusive.push(addr);
+            LedgerResult::OkTrue
+        } else {
+            LedgerResult::OkFalse
+        }
+    }
+
+    #[inline]
+    fn clear(&mut self) {
+        self.shared.clear();
+        self.shared_count.clear();
+        self.exclusive.clear();
+    }
+}
+
 /// Return the API version.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn jlrs_ledger_api_version() -> usize {
     JLRS_LEDGER_API_VERSION
 }
@@ -42,9 +165,9 @@ pub unsafe extern "C" fn jlrs_ledger_api_version() -> usize {
 ///
 /// This function must be called before calling any other functions from the C API of this
 /// crate, except [`jlrs_ledger_api_version`].
-#[no_mangle]
-pub extern "C" fn jlrs_ledger_init() {
-    LEDGER.get_or_init(|| Mutex::new(Default::default()));
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn jlrs_ledger_init() {
+    LEDGER.lock().reserve(INITIAL_CAPACITY);
 }
 
 /// Check if the given pointer is tracked as a shared borrow.
@@ -55,13 +178,9 @@ pub extern "C" fn jlrs_ledger_init() {
 /// Safety:
 ///
 /// `jlrs_ledger_init` must have been called before calling this function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn jlrs_ledger_is_borrowed_shared(ptr: *const c_void) -> LedgerResult {
-    match LEDGER.get_unchecked().lock().get(&(ptr as usize)).copied() {
-        None => LedgerResult::OkFalse,
-        Some(s) if s != EXCLUSIVE_BORROW => LedgerResult::OkTrue,
-        Some(_) => LedgerResult::OkFalse,
-    }
+    LEDGER.lock().is_borrowed_shared(ptr)
 }
 
 /// Check if the given pointer is tracked as an exclusive borrow.
@@ -72,13 +191,9 @@ pub unsafe extern "C" fn jlrs_ledger_is_borrowed_shared(ptr: *const c_void) -> L
 /// Safety:
 ///
 /// `jlrs_ledger_init` must have been called before calling this function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn jlrs_ledger_is_borrowed_exclusive(ptr: *const c_void) -> LedgerResult {
-    match LEDGER.get_unchecked().lock().get(&(ptr as usize)).copied() {
-        None => LedgerResult::OkFalse,
-        Some(s) if s == EXCLUSIVE_BORROW => LedgerResult::OkTrue,
-        Some(_) => LedgerResult::OkFalse,
-    }
+    LEDGER.lock().is_borrowed_exclusive(ptr)
 }
 
 /// Check if the given pointer is tracked in some way.
@@ -89,13 +204,9 @@ pub unsafe extern "C" fn jlrs_ledger_is_borrowed_exclusive(ptr: *const c_void) -
 /// Safety:
 ///
 /// `jlrs_ledger_init` must have been called before calling this function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn jlrs_ledger_is_borrowed(ptr: *const c_void) -> LedgerResult {
-    if LEDGER.get_unchecked().lock().contains_key(&(ptr as usize)) {
-        LedgerResult::OkTrue
-    } else {
-        LedgerResult::OkFalse
-    }
+    LEDGER.lock().is_borrowed(ptr)
 }
 
 /// The number of active shared borrows of `addr`.
@@ -103,12 +214,9 @@ pub unsafe extern "C" fn jlrs_ledger_is_borrowed(ptr: *const c_void) -> LedgerRe
 /// Safety:
 ///
 /// `jlrs_ledger_init` must have been called before calling this function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn jlrs_ledger_n_shared_borrows(ptr: *const c_void) -> usize {
-    match LEDGER.get_unchecked().lock().get(&(ptr as usize)).copied() {
-        Some(s) => s.get() >> 1,
-        None => 0,
-    }
+    LEDGER.lock().n_shared_borrows(ptr)
 }
 /// Stop tracking the pointer as a shared borrow.
 ///
@@ -119,23 +227,9 @@ pub unsafe extern "C" fn jlrs_ledger_n_shared_borrows(ptr: *const c_void) -> usi
 /// Safety:
 ///
 /// `jlrs_ledger_init` must have been called before calling this function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn jlrs_ledger_unborrow_shared(ptr: *const c_void) -> LedgerResult {
-    match LEDGER.get_unchecked().lock().entry(ptr as usize) {
-        Entry::Occupied(mut o) => {
-            let current = *o.get();
-            if current == SHARED_BORROW {
-                o.remove_entry();
-                LedgerResult::OkTrue
-            } else if current != EXCLUSIVE_BORROW {
-                *o.get_mut() = NonZeroUsize::new_unchecked(current.get() - SHARED_BORROW_MASK);
-                LedgerResult::OkFalse
-            } else {
-                LedgerResult::Err
-            }
-        }
-        Entry::Vacant(_) => LedgerResult::Err,
-    }
+    LEDGER.lock().unborrow_shared(ptr)
 }
 
 /// Stop tracking the pointer as an exclusive borrow.
@@ -146,17 +240,9 @@ pub unsafe extern "C" fn jlrs_ledger_unborrow_shared(ptr: *const c_void) -> Ledg
 /// Safety:
 ///
 /// `jlrs_ledger_init` must have been called before calling this function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn jlrs_ledger_unborrow_exclusive(ptr: *const c_void) -> LedgerResult {
-    let mut ledger = LEDGER.get_unchecked().lock();
-    match ledger.remove(&(ptr as usize)) {
-        Some(s) if s == EXCLUSIVE_BORROW => LedgerResult::OkTrue,
-        Some(s) => {
-            ledger.insert(ptr as _, s);
-            LedgerResult::Err
-        }
-        _ => LedgerResult::Err,
-    }
+    LEDGER.lock().unborrow_exclusive(ptr)
 }
 
 /// Try to track the pointer as a shared borrow.
@@ -167,23 +253,9 @@ pub unsafe extern "C" fn jlrs_ledger_unborrow_exclusive(ptr: *const c_void) -> L
 /// Safety:
 ///
 /// `jlrs_ledger_init` must have been called before calling this function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn jlrs_ledger_try_borrow_shared(ptr: *const c_void) -> LedgerResult {
-    match LEDGER.get_unchecked().lock().entry(ptr as usize) {
-        Entry::Vacant(v) => {
-            v.insert(SHARED_BORROW);
-            LedgerResult::OkTrue
-        }
-        Entry::Occupied(ref mut o) => {
-            let current = *o.get();
-            if current != EXCLUSIVE_BORROW {
-                *o.get_mut() = NonZeroUsize::new_unchecked(current.get() + SHARED_BORROW_MASK);
-                LedgerResult::OkTrue
-            } else {
-                LedgerResult::OkFalse
-            }
-        }
-    }
+    LEDGER.lock().try_borrow_shared(ptr)
 }
 /// Try to track the pointer as an exclusive borrow.
 ///
@@ -193,15 +265,9 @@ pub unsafe extern "C" fn jlrs_ledger_try_borrow_shared(ptr: *const c_void) -> Le
 /// Safety:
 ///
 /// `jlrs_ledger_init` must have been called before calling this function.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn jlrs_ledger_try_borrow_exclusive(ptr: *const c_void) -> LedgerResult {
-    match LEDGER.get_unchecked().lock().entry(ptr as usize) {
-        Entry::Vacant(v) => {
-            v.insert(EXCLUSIVE_BORROW);
-            LedgerResult::OkTrue
-        }
-        Entry::Occupied(_) => LedgerResult::OkFalse,
-    }
+    LEDGER.lock().try_borrow_exclusive(ptr)
 }
 
 /// Clear the ledger.
@@ -214,7 +280,7 @@ pub unsafe extern "C" fn jlrs_ledger_try_borrow_exclusive(ptr: *const c_void) ->
 /// `jlrs_ledger_init` must have been called before calling this function.
 #[doc(hidden)]
 pub unsafe fn clear_ledger() {
-    LEDGER.get_unchecked().lock().clear();
+    LEDGER.lock().clear();
 }
 
 #[cfg(test)]

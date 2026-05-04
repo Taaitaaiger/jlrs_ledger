@@ -1,6 +1,7 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
 use jlrs_ledger::*;
 use std::{
+    hint::black_box,
     hint::spin_loop,
     ptr::dangling,
     sync::{Arc, Barrier},
@@ -81,7 +82,7 @@ fn bench(c: &mut Criterion, n_threads: usize, max_threads: usize) {
 }
 
 fn benches(c: &mut Criterion) {
-    jlrs_ledger_init();
+    unsafe { jlrs_ledger_init() };
 
     bench(c, 1, 8);
     unsafe { clear_ledger() };
